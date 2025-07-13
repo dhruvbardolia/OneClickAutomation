@@ -1,0 +1,37 @@
+pipeline{
+    agent {
+       label "aws-jenkins-slave"
+    }
+    stages{
+        stage('RDS') {
+            steps {
+                withCredentials([
+                    usernamePassword(credentialsId: 'github-credentials', passwordVariable: 'PASSWORD', usernameVariable: 'USERNAME'),
+                    usernamePassword(credentialsId: 'rds-credentials', passwordVariable: 'DB_PASSWORD', usernameVariable: 'DB_USERNAME') 
+                ]) {
+                    sh '''#!/bin/bash
+                        echo "RDS Creation..."
+                        git clone https://${USERNAME}:${PASSWORD}@github.com/TrainingAmigo/woliba-infra.git
+                        cd woliba-infra/terraform/RDS
+                        terraform init -backend-config=s3-bucket.conf
+                        terraform fmt -check
+                        terraform plan -input=false -var-file staging.tfvars -out rds.tfplan -lock=false -var="name=${NAME}"
+                        terraform apply -input=false -lock=false "rds.tfplan"
+                        export RDS_NAME=$(terraform output -raw rds_name)
+                        export ENDPOINT=$(aws rds describe-db-instances --db-instance-identifier $RDS_NAME --query "*[].[Endpoint.Address]" | grep '"' | cut -d '"' -f 2)
+                        echo $RDS_NAME
+                        echo $ENDPOINT
+                        sleep 15
+                        # mysql -h ${ENDPOINT} -u ${DB_USERNAME} -p${DB_PASSWORD} -D trainingamigo -e "UPDATE users SET mail = CONCAT('woliba-user-', uid, '@woliba.io') where mail != 'superteam@woliba.io';"
+                        echo "RDS Creation successfull..."
+                    '''
+                }
+            }
+        }
+    }
+    post { 
+        always { 
+            cleanWs()
+        }
+    }
+}

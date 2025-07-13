@@ -1,0 +1,26 @@
+pipeline{
+    agent {
+       label "aws-jenkins-slave"
+    }
+    stages{
+        stage(RDS) {
+            steps {
+                withCredentials([usernamePassword(credentialsId: 'github-credentials', passwordVariable: 'PASSWORD', usernameVariable: 'USERNAME')]) {
+                    echo "Taking Snapshot of Production Database and Creating New Database"
+                    sh '''#!/bin/bash
+                        git clone https://${USERNAME}:${PASSWORD}@github.com/TrainingAmigo/woliba-infra.git
+                        cd woliba-infra/terraform/RDS
+                        terraform init -backend-config=s3-bucket.conf
+                        terraform fmt -check
+                        terraform destroy -input=false -var-file staging.tfvars -auto-approve
+                    '''
+                }
+            }
+        }
+    }
+    post { 
+        always { 
+            cleanWs()
+        }
+    }
+}

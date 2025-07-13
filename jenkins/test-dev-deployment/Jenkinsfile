@@ -1,0 +1,149 @@
+pipeline{
+    agent {
+       label "aws-jenkins-slave"
+    }
+    stages{
+        stage('RDS-DB-Creation') {
+            steps {
+                script {
+                    if (params.RDS_ENDPOINT == 'Prod') {
+                        withCredentials([
+                            usernamePassword(credentialsId: 'github-credentials', passwordVariable: 'PASSWORD', usernameVariable: 'USERNAME'),
+                            usernamePassword(credentialsId: 'rds-credentials', passwordVariable: 'DB_PASSWORD', usernameVariable: 'DB_USERNAME'),
+                            string(credentialsId: 'USER_PASSWORD', variable: 'USER_PASSWORD'),
+                            ]) {
+                            echo "RDS-DB-Creation"
+                            sh '''#!/bin/bash
+                                echo "RDS Creation..."
+                                git clone https://${USERNAME}:${PASSWORD}@github.com/TrainingAmigo/woliba-infra.git
+                                cd woliba-infra/terraform/RDS
+                                envsubst < s3-bucket.conf | cat - > test.conf
+                                cat test.conf > s3-bucket.conf
+                                terraform init -backend-config=s3-bucket.conf
+                                terraform fmt -check
+                                terraform plan -input=false -var-file staging.tfvars -out ${NAME}.tfplan -lock=false -var="name=${NAME}"
+                                terraform apply -input=false -lock=false "${NAME}.tfplan"
+                                export RDS_NAME=$(terraform output -raw rds_name)
+                                export ENDPOINT=$(aws rds describe-db-instances --db-instance-identifier $RDS_NAME --query "*[].[Endpoint.Address]" | grep '"' | cut -d '"' -f 2)
+                                echo $RDS_NAME
+                                echo $ENDPOINT
+                                sleep 15
+                                mysql -h $ENDPOINT -u ${DB_USERNAME} -p${DB_PASSWORD} -D trainingamigo -e "SHOW DATABASES;"
+                                mysql -h $ENDPOINT -u ${DB_USERNAME} -p${DB_PASSWORD} -D trainingamigo -e "USE trainingamigo; UPDATE users SET password = '${USER_PASSWORD}';"
+                                echo "RDS Creation successfull..."
+                            '''
+                        }
+                    } 
+                    else {
+                        withCredentials([
+                            usernamePassword(credentialsId: 'github-credentials', passwordVariable: 'PASSWORD', usernameVariable: 'USERNAME'),
+                            usernamePassword(credentialsId: 'rds-credentials', passwordVariable: 'DB_PASSWORD', usernameVariable: 'DB_USERNAME'),
+                            string(credentialsId: 'USER_PASSWORD', variable: 'USER_PASSWORD'),
+                            ]) {
+                            echo "RDS-DEV-DB"
+                            sh '''#!/bin/bash
+                                echo "Fetching the RDS..."
+                                git clone https://${USERNAME}:${PASSWORD}@github.com/TrainingAmigo/woliba-infra.git
+                                export ENDPOINT=""
+                                echo $ENDPOINT
+                                sleep 15
+                                mysql -h $ENDPOINT -u ${DB_USERNAME} -p${DB_PASSWORD} -D trainingamigo -e "SHOW DATABASES;"
+                                echo "RDS Connection is success..."
+                            '''
+                        }
+                    }
+                }
+            }
+        }
+        // stage('Backend-Deployment-with-s3') {
+        //     steps {
+        //         withCredentials([
+        //             usernamePassword(credentialsId: 'github-credentials', passwordVariable: 'PASSWORD', usernameVariable: 'USERNAME'),
+        //             usernamePassword(credentialsId: 'rds-credentials', passwordVariable: 'DB_trainingamigo_PASSWORD', usernameVariable: 'DB_trainingamigo_USERNAME'),
+        //             string(credentialsId: 'APP_KEY', variable: 'APP_KEY'),
+        //             string(credentialsId: 'DB_HOST', variable: 'DB_HOST'),
+        //             string(credentialsId: 'SPARKPOST_SECRET', variable: 'SPARKPOST_SECRET'),
+        //             string(credentialsId: 'AWS_ACCESS_KEY_ID', variable: 'AWS_ACCESS_KEY_ID'),
+        //             string(credentialsId: 'AWS_SECRET_ACCESS_KEY', variable: 'AWS_SECRET_ACCESS_KEY'),
+        //             string(credentialsId: 'BUGSNAG_API_KEY', variable: 'BUGSNAG_API_KEY'),
+        //             string(credentialsId: 'FCM_SERVER_KEY', variable: 'FCM_SERVER_KEY'),
+        //             string(credentialsId: 'STRIPE_KEY', variable: 'STRIPE_KEY'),
+        //             string(credentialsId: 'BUGSNAG_API_KEY', variable: 'BUGSNAG_API_KEY'),
+        //             string(credentialsId: 'STRIPE_SECRET', variable: 'STRIPE_SECRET'),
+                    
+        //             ]) {
+        //             echo "Backend-Deployment starts..."
+        //             sh '''#!/bin/bash
+
+        //                 echo "Packer building new AMI..."
+        //                 git clone https://${USERNAME}:${PASSWORD}@github.com/TrainingAmigo/woliba-infra.git
+        //                 cd woliba-infra/packer-php
+        //                 ls
+        //                 echo "start dhruv"
+        //                 packer init .
+        //                 packer build -var "AMI_NAME=${NAME}" -var "BE_BRANCH_NAME=${BE_BRANCH_NAME}" -var "AMI=${AMI}" -var "APP_KEY=${APP_KEY}" -var "APP_URL=http://localhost" -var "DB_HOST=$ENDPOINT" -var "DB_NAME=trainingamigo" -var "DB_USERNAME=${DB_trainingamigo_USERNAME}" -var "DB_PASSWORD=${DB_trainingamigo_PASSWORD}" -var "SPARKPOST_SECRET=${SPARKPOST_SECRET}" -var "AWS_ACCESS_KEY_ID=${AWS_ACCESS_KEY_ID}" -var "AWS_SECRET_ACCESS_KEY=${AWS_SECRET_ACCESS_KEY}" -var "BUGSNAG_API_KEY=${BUGSNAG_API_KEY}" -var "FCM_SERVER_KEY=${FCM_SERVER_KEY}" -var "STRIPE_KEY=${STRIPE_KEY}" -var "STRIPE_SECRET=${STRIPE_SECRET}" php.pkr.hcl
+        //                 AMI_ID=$(jq -r '.builds[-1].artifact_id' manifest.json | cut -d ":" -f2)
+        //                 echo "New AMI is created: $AMI_ID"
+        //             '''
+        //         }
+        //     }
+        // }
+        stage('Register Job in S3') {
+            steps {
+                script {
+                    echo "S3 Registering..."
+                    def jobName = NAME
+                    def s3Bucket = "live-env.woliba.io"
+                    def fileName = "index.html"
+                    def tempFile = "temp.txt"
+                    echo "mayr"
+
+                    withCredentials([
+                        string(credentialsId: 'AWS_ACCESS_KEY_ID', variable: 'AWS_ACCESS_KEY_ID'),
+                        string(credentialsId: 'AWS_SECRET_ACCESS_KEY', variable: 'AWS_SECRET_ACCESS_KEY')
+                    ]) {
+                        sh "aws s3 cp s3://${s3Bucket}/${fileName} ${tempFile} || touch ${tempFile}"
+                        sh "echo ${jobName} >> ${tempFile}"
+                        sh "aws s3 cp ${tempFile} s3://${s3Bucket}/${fileName}"
+                        sh "rm ${tempFile}"
+                    }
+                    echo "mayurr-test"
+                }
+            }
+        }
+        stage('Store Environment Name in DynamoDB') {
+            steps {
+                script {
+                    def environmentName = env.NAME
+
+                    withCredentials([
+                        string(credentialsId: 'AWS_ACCESS_KEY_ID', variable: 'AWS_ACCESS_KEY_ID'),
+                        string(credentialsId: 'AWS_SECRET_ACCESS_KEY', variable: 'AWS_SECRET_ACCESS_KEY')
+                    ]) {
+                        sh "aws dynamodb put-item --table-name environments --item '{\"Name\": {\"S\": \"${environmentName}\"}}'"
+                    }
+                    echo "Stored environment name '${environmentName}' in DynamoDB."
+                }
+            }
+        }
+
+    //     stage('Frontend-Deployment') {
+    //         agent{
+    //                 docker{
+    //                         // Pull the Docker image
+    //          
+    //                     cd $DIR
+    //                     cd woliba-infra/terraform/EC2-S3
+    //        
+    //                     echo "Frontend Deployment successfull..."
+    //                 '''
+    //             }
+    //         }
+    //     }
+    }
+    post {
+        always { 
+            cleanWs()
+        }
+    }
+}
