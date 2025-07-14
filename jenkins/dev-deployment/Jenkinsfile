@@ -3,23 +3,26 @@ pipeline{
        label "aws-jenkins-slave"
     }
     stages{
-        stage('RDS-DB-Creation') {
+        stage('Database Creation') {
             steps {
                 script {
                     if (params.RDS_ENDPOINT == 'Production') {
                         withCredentials([
-                            usernamePassword(credentialsId: 'github-credentials', passwordVariable: 'PASSWORD', usernameVariable: 'USERNAME'),
-                            usernamePassword(credentialsId: 'rds-credentials', passwordVariable: 'DB_PASSWORD', usernameVariable: 'DB_USERNAME'),
+                            usernamePassword(credentialsId: 'github-credentials', passwordVariable: 'PASSWORD', usernameVariable: 'USERNAME'), # Github credentials from Jenkins Credentials
+                            usernamePassword(credentialsId: 'rds-credentials', passwordVariable: 'DB_PASSWORD', usernameVariable: 'DB_USERNAME'), # RDS credentials from Jenkins Credentials
                             string(credentialsId: 'USER_PASSWORD', variable: 'USER_PASSWORD'),
                             ]) {
-                            echo "RDS-DB-Creation"
+                            echo "Database Creation"
                             sh '''#!/bin/bash
                                 echo "RDS Creation..."
-                                git clone https://${USERNAME}:${PASSWORD}@github.com/TrainingAmigo/woliba-infra.git
-                                cd woliba-infra/terraform/RDS
-                                envsubst < s3-bucket.conf | cat - > test.conf
-                                cat test.conf > s3-bucket.conf
-                                terraform init -backend-config=s3-bucket.conf
+                                git clone https://${USERNAME}:${PASSWORD}@github.com/dhruvbardolia/dhruv-infra.git
+                                cd dhruv-infra/terraform/RDS
+                                export NAME=${NAME}
+                                export bucket=terraform-backend-dhruv
+                                export region=us-east-1 # Region for your infrastructure
+                                envsubst < backend.conf | cat - > test.conf
+                                cat test.conf > backend.conf
+                                terraform init -backend-config=backend.conf
                                 terraform fmt -check
                                 terraform plan -input=false -var-file staging.tfvars -out ${NAME}.tfplan -lock=false -var="name=${NAME}"
                                 terraform apply -input=false -lock=false "${NAME}.tfplan"
@@ -28,8 +31,8 @@ pipeline{
                                 echo $RDS_NAME
                                 echo $ENDPOINT
                                 sleep 15
-                                mysql -h $ENDPOINT -u ${DB_USERNAME} -p${DB_PASSWORD} -D trainingamigo -e "USE trainingamigo; UPDATE users SET mail = CONCAT('woliba-user-', uid, '@woliba.io') where mail != 'superteam@woliba.io';"
-                                mysql -h $ENDPOINT -u ${DB_USERNAME} -p${DB_PASSWORD} -D trainingamigo -e "USE trainingamigo; UPDATE users SET password = '${USER_PASSWORD}';"
+                                mysql -h $ENDPOINT -u ${DB_USERNAME} -p${DB_PASSWORD} -D dhruvbardolia -e "USE dhruvbardolia; UPDATE users SET mail = CONCAT('dhruv-user-', uid, '@dhruv.io') where mail != 'superteam@dhruv.io';"
+                                mysql -h $ENDPOINT -u ${DB_USERNAME} -p${DB_PASSWORD} -D dhruvbardolia -e "USE dhruvbardolia; UPDATE users SET password = '${USER_PASSWORD}';"
                                 echo "RDS Creation successfull..."
                             '''
                         }
@@ -43,8 +46,8 @@ pipeline{
                             echo "RDS-DEV-DB"
                             sh '''#!/bin/bash
                                 echo "Fetching the RDS..."
-                                git clone https://${USERNAME}:${PASSWORD}@github.com/TrainingAmigo/woliba-infra.git
-                                export ENDPOINT="trainingamigo-dev.c5ag8ujkoc4k.us-east-1.rds.amazonaws.com"
+                                git clone https://${USERNAME}:${PASSWORD}@github.com/dhruvbardolia/dhruv-infra.git
+                                export ENDPOINT="dhruvbardolia-dev.c5ag8ujkoc4k.us-east-1.rds.amazonaws.com"
                                 echo $ENDPOINT
                                 sleep 15
                                 mysql -h $ENDPOINT -u ${DB_USERNAME} -p${DB_PASSWORD} -e "SHOW DATABASES;"
@@ -61,7 +64,7 @@ pipeline{
                     if (params.RDS_ENDPOINT == 'Production') {
                         withCredentials([
                             usernamePassword(credentialsId: 'github-credentials', passwordVariable: 'PASSWORD', usernameVariable: 'USERNAME'),
-                            usernamePassword(credentialsId: 'rds-credentials', passwordVariable: 'DB_trainingamigo_PASSWORD', usernameVariable: 'DB_trainingamigo_USERNAME'),
+                            usernamePassword(credentialsId: 'rds-credentials', passwordVariable: 'DB_dhruvbardolia_PASSWORD', usernameVariable: 'DB_dhruvbardolia_USERNAME'),
                             string(credentialsId: 'APP_KEY', variable: 'APP_KEY'),
                             string(credentialsId: 'DB_HOST', variable: 'DB_HOST'),
                             string(credentialsId: 'SPARKPOST_SECRET', variable: 'SPARKPOST_SECRET'),
@@ -78,9 +81,9 @@ pipeline{
                             sh '''#!/bin/bash
 
                                 echo "Packer building new AMI..."
-                                git clone https://${USERNAME}:${PASSWORD}@github.com/TrainingAmigo/woliba-infra.git
+                                git clone https://${USERNAME}:${PASSWORD}@github.com/dhruvbardolia/dhruv-infra.git
                                 export DIR=$(pwd)
-                                cd woliba-infra/terraform/RDS
+                                cd dhruv-infra/terraform/RDS
                                 envsubst < s3-bucket.conf | cat - > test.conf
                                 cat test.conf > s3-bucket.conf
                                 terraform init -backend-config=s3-bucket.conf
@@ -90,9 +93,9 @@ pipeline{
                                 echo "RDS-Endpoint: $ENDPOINT"
                                 cd ../../..
                                 cd $DIR
-                                cd woliba-infra/packer
+                                cd dhruv-infra/packer
                                 packer init .
-                                packer build -var "AMI_NAME=${NAME}" -var "BE_BRANCH_NAME=${BE_BRANCH_NAME}" -var "APP_KEY=${APP_KEY}" -var "APP_URL=http://localhost" -var "DB_HOST=$ENDPOINT" -var "DB_NAME=trainingamigo" -var "DB_USERNAME=${DB_trainingamigo_USERNAME}" -var "DB_PASSWORD=${DB_trainingamigo_PASSWORD}" -var "SPARKPOST_SECRET=${SPARKPOST_SECRET}" -var "AWS_ACCESS_KEY_ID=${AWS_ACCESS_KEY_ID}" -var "AWS_SECRET_ACCESS_KEY=${AWS_SECRET_ACCESS_KEY}" -var "BUGSNAG_API_KEY=${BUGSNAG_API_KEY}" -var "FCM_SERVER_KEY=${FCM_SERVER_KEY}" -var "STRIPE_KEY=${STRIPE_KEY}" -var "STRIPE_SECRET=${STRIPE_SECRET}" build.pkr.hcl
+                                packer build -var "AMI_NAME=${NAME}" -var "BE_BRANCH_NAME=${BE_BRANCH_NAME}" -var "APP_KEY=${APP_KEY}" -var "APP_URL=http://localhost" -var "DB_HOST=$ENDPOINT" -var "DB_NAME=dhruvbardolia" -var "DB_USERNAME=${DB_dhruvbardolia_USERNAME}" -var "DB_PASSWORD=${DB_dhruvbardolia_PASSWORD}" -var "SPARKPOST_SECRET=${SPARKPOST_SECRET}" -var "AWS_ACCESS_KEY_ID=${AWS_ACCESS_KEY_ID}" -var "AWS_SECRET_ACCESS_KEY=${AWS_SECRET_ACCESS_KEY}" -var "BUGSNAG_API_KEY=${BUGSNAG_API_KEY}" -var "FCM_SERVER_KEY=${FCM_SERVER_KEY}" -var "STRIPE_KEY=${STRIPE_KEY}" -var "STRIPE_SECRET=${STRIPE_SECRET}" build.pkr.hcl
                                 AMI_ID=$(jq -r '.builds[-1].artifact_id' manifest.json | cut -d ":" -f2)
                                 echo "New AMI is created: $AMI_ID"
 
@@ -113,7 +116,7 @@ pipeline{
                     else {
                         withCredentials([
                             usernamePassword(credentialsId: 'github-credentials', passwordVariable: 'PASSWORD', usernameVariable: 'USERNAME'),
-                            usernamePassword(credentialsId: 'rds-credentials', passwordVariable: 'DB_trainingamigo_PASSWORD', usernameVariable: 'DB_trainingamigo_USERNAME'),
+                            usernamePassword(credentialsId: 'rds-credentials', passwordVariable: 'DB_dhruvbardolia_PASSWORD', usernameVariable: 'DB_dhruvbardolia_USERNAME'),
                             string(credentialsId: 'APP_KEY', variable: 'APP_KEY'),
                             string(credentialsId: 'DB_HOST', variable: 'DB_HOST'),
                             string(credentialsId: 'SPARKPOST_SECRET', variable: 'SPARKPOST_SECRET'),
@@ -130,14 +133,14 @@ pipeline{
                             sh '''#!/bin/bash
 
                                 echo "Packer building new AMI..."
-                                git clone https://${USERNAME}:${PASSWORD}@github.com/TrainingAmigo/woliba-infra.git
+                                git clone https://${USERNAME}:${PASSWORD}@github.com/dhruvbardolia/dhruv-infra.git
                                 export DIR=$(pwd)
-                                export ENDPOINT="trainingamigo-dev.c5ag8ujkoc4k.us-east-1.rds.amazonaws.com"
+                                export ENDPOINT="dhruvbardolia-dev.c5ag8ujkoc4k.us-east-1.rds.amazonaws.com"
                                 echo "RDS-Endpoint: $ENDPOINT"
                                 cd $DIR
-                                cd woliba-infra/packer
+                                cd dhruv-infra/packer
                                 packer init .
-                                packer build -var "AMI_NAME=${NAME}" -var "BE_BRANCH_NAME=${BE_BRANCH_NAME}" -var "APP_KEY=${APP_KEY}" -var "APP_URL=http://localhost" -var "DB_HOST=$ENDPOINT" -var "DB_NAME=trainingamigo" -var "DB_USERNAME=${DB_trainingamigo_USERNAME}" -var "DB_PASSWORD=${DB_trainingamigo_PASSWORD}" -var "SPARKPOST_SECRET=${SPARKPOST_SECRET}" -var "AWS_ACCESS_KEY_ID=${AWS_ACCESS_KEY_ID}" -var "AWS_SECRET_ACCESS_KEY=${AWS_SECRET_ACCESS_KEY}" -var "BUGSNAG_API_KEY=${BUGSNAG_API_KEY}" -var "FCM_SERVER_KEY=${FCM_SERVER_KEY}" -var "STRIPE_KEY=${STRIPE_KEY}" -var "STRIPE_SECRET=${STRIPE_SECRET}" build.pkr.hcl
+                                packer build -var "AMI_NAME=${NAME}" -var "BE_BRANCH_NAME=${BE_BRANCH_NAME}" -var "APP_KEY=${APP_KEY}" -var "APP_URL=http://localhost" -var "DB_HOST=$ENDPOINT" -var "DB_NAME=dhruvbardolia" -var "DB_USERNAME=${DB_dhruvbardolia_USERNAME}" -var "DB_PASSWORD=${DB_dhruvbardolia_PASSWORD}" -var "SPARKPOST_SECRET=${SPARKPOST_SECRET}" -var "AWS_ACCESS_KEY_ID=${AWS_ACCESS_KEY_ID}" -var "AWS_SECRET_ACCESS_KEY=${AWS_SECRET_ACCESS_KEY}" -var "BUGSNAG_API_KEY=${BUGSNAG_API_KEY}" -var "FCM_SERVER_KEY=${FCM_SERVER_KEY}" -var "STRIPE_KEY=${STRIPE_KEY}" -var "STRIPE_SECRET=${STRIPE_SECRET}" build.pkr.hcl
                                 AMI_ID=$(jq -r '.builds[-1].artifact_id' manifest.json | cut -d ":" -f2)
                                 echo "New AMI is created: $AMI_ID"
 
@@ -173,8 +176,8 @@ pipeline{
 
                         export NAME=${NAME}
                         export DIR=$(pwd)
-                        git clone https://${USERNAME}:${PASSWORD}@github.com/TrainingAmigo/woliba-infra.git
-                        cd woliba-infra/terraform/EC2-S3
+                        git clone https://${USERNAME}:${PASSWORD}@github.com/dhruvbardolia/dhruv-infra.git
+                        cd dhruv-infra/terraform/EC2-S3
                         envsubst < s3-bucket.conf | cat - > test.conf
                         cat test.conf > s3-bucket.conf
                         terraform init -backend-config=s3-bucket.conf
@@ -183,7 +186,7 @@ pipeline{
 
                         export API_URL=http://$BACKEND_PUBLIC_IP
                         cd $DIR
-                        git clone https://${USERNAME}:${PASSWORD}@github.com/TrainingAmigo/react.git
+                        git clone https://${USERNAME}:${PASSWORD}@github.com/dhruvbardolia/react.git
                         cd react
                         #Checkout the branch based on a parameter
                         git checkout ${FE_BRANCH_NAME}
@@ -209,7 +212,7 @@ pipeline{
 
                         cd ..
                         cd $DIR
-                        cd woliba-infra/terraform/EC2-S3
+                        cd dhruv-infra/terraform/EC2-S3
                         export S3_URL=$(terraform output -raw s3_url)
                         cd ..
                         echo "Frontend URL : $S3_URL"
@@ -217,7 +220,7 @@ pipeline{
                         echo "Backend Public IP : $BACKEND_PUBLIC_IP"
                         cd ../../..
                         cd $DIR
-                        rm -rf woliba-infra react
+                        rm -rf dhruv-infra react
                         rm -rf *
                         echo "Frontend Deployment successfull..."
                     '''
@@ -229,7 +232,7 @@ pipeline{
         //         script {
         //             echo "S3 Registering..."
         //             def jobName = NAME
-        //             def s3Bucket = "live-env.woliba.io"
+        //             def s3Bucket = "live-env.dhruv.io"
         //             def fileName = "index.html"
         //             def tempFile = "temp.txt"
 
@@ -243,7 +246,7 @@ pipeline{
         //                 sh "rm ${tempFile}"
         //             }
         //             echo "S3 Registration is completed"
-        //             echo "http://live-env.woliba.io/"
+        //             echo "http://live-env.dhruv.io/"
         //         }
         //     }
         // }
