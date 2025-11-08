@@ -14,133 +14,144 @@ variable "AMI_NAME" {
 }
 
 variable "BE_BRANCH_NAME" {
-  type = string
+  description = "Backend repository branch to deploy"
+  type        = string
 }
 
 variable "APP_KEY" {
-  type = string
+  description = "Laravel application key"
+  type        = string
 }
 
 variable "APP_URL" {
-  type = string
+  description = "Base application URL"
+  type        = string
 }
 
 variable "DB_HOST" {
-  type = string
+  description = "Database endpoint hostname"
+  type        = string
 }
 
 variable "DB_NAME" {
-  type = string
+  description = "Database name"
+  type        = string
 }
 
 variable "DB_USERNAME" {
-  type = string
+  description = "Database username"
+  type        = string
 }
 
 variable "DB_PASSWORD" {
-  type = string
+  description = "Database password"
+  type        = string
 }
 
 variable "SPARKPOST_SECRET" {
-  type = string
+  description = "SparkPost API secret"
+  type        = string
 }
 
 variable "AWS_ACCESS_KEY_ID" {
-  type = string
+  description = "AWS access key ID for the application"
+  type        = string
 }
 
 variable "AWS_SECRET_ACCESS_KEY" {
-  type = string
+  description = "AWS secret access key for the application"
+  type        = string
 }
 
 variable "BUGSNAG_API_KEY" {
-  type = string
+  description = "Bugsnag API key"
+  type        = string
 }
 
 variable "FCM_SERVER_KEY" {
-  type = string
+  description = "Firebase Cloud Messaging server key"
+  type        = string
 }
 
 variable "STRIPE_KEY" {
-  type = string
+  description = "Stripe publishable key"
+  type        = string
 }
 
 variable "STRIPE_SECRET" {
-  type = string
+  description = "Stripe secret key"
+  type        = string
 }
 
-
-source "amazon-ebs" "test" {
-  #which ami to use as the base
-  #where to save the ami
-  ami_name   = "${var.AMI_NAME}"
-  source_ami = "ami-0da7bb0769981faac" #ubuntu
-  # source_ami      = "ami-03dc967a2cbd688e5" #base ami of ubuntu 20.04 having all tools and software dependencies
+locals {
+  base_ami      = "ami-0da7bb0769981faac"
   instance_type = "t3.medium"
+  manifest_path = "manifest.json"
+  rc_local_path = "/home/ubuntu/rc.local"
   region        = "us-east-1"
   ssh_username  = "ubuntu"
 }
 
+
+source "amazon-ebs" "test" {
+  // Base AMI and target image metadata
+  ami_name      = var.AMI_NAME
+  source_ami    = local.base_ami
+  instance_type = local.instance_type
+  region        = local.region
+  ssh_username  = local.ssh_username
+}
+
 build {
-  #what to install
-  #configure
-  #files to copy
-  sources = [
-    "source.amazon-ebs.test"
-  ]
+  sources = ["source.amazon-ebs.test"]
+
+  provisioner "shell" {
+    inline = [
+      "echo '[Provisioner] Waiting for instance readiness...'",
+      "sleep 30",
+      <<-RCLOCAL,
+cat <<'RC_LOCAL' | sudo tee ${local.rc_local_path} > /dev/null
+#!/bin/sh
+export APP_KEY='${var.APP_KEY}'
+export APP_URL=${var.APP_URL}
+export DB_HOST=${var.DB_HOST}
+export DB_NAME=${var.DB_NAME}
+export DB_USERNAME=${var.DB_USERNAME}
+export DB_PASSWORD='${var.DB_PASSWORD}'
+export SPARKPOST_SECRET=${var.SPARKPOST_SECRET}
+export AWS_ACCESS_KEY_ID=${var.AWS_ACCESS_KEY_ID}
+export AWS_SECRET_ACCESS_KEY=${var.AWS_SECRET_ACCESS_KEY}
+export BUGSNAG_API_KEY=${var.BUGSNAG_API_KEY}
+export FCM_SERVER_KEY=${var.FCM_SERVER_KEY}
+export STRIPE_KEY=${var.STRIPE_KEY}
+export STRIPE_SECRET=${var.STRIPE_SECRET}
+sudo git config --global --add safe.directory /home/ubuntu/laravel
+cd /home/ubuntu/laravel
+sudo git pull
+sudo git checkout ${var.BE_BRANCH_NAME}
+sudo git pull
+envsubst < /home/ubuntu/laravel/app-config.txt | cat - > .env.test
+sudo cat .env.test > .env
+sudo rm -rf composer.lock
+sudo composer install
+sudo php artisan key:generate
+sudo chmod -R 777 storage
+sudo php artisan serve
+echo "Backend is configured!!!"
+RC_LOCAL
+      RCLOCAL,
+      "sudo chmod 755 ${local.rc_local_path}",
+      "sudo cp ${local.rc_local_path} /etc/rc.local",
+      "sudo chmod 755 /etc/rc.local",
+      "echo '[Provisioner] rc.local installed.'"
+    ]
+  }
+
   post-processor "manifest" {
-    output = "manifest.json"
+    output     = local.manifest_path
     strip_path = true
     custom_data = {
       my_custom_data = "example"
     }
-  }
-
-  provisioner "shell" {
-    inline = [
-      "echo 'Script is running...'",
-      "sleep 30", #packer recomends it, because it may take time for EC2 to be fully setup and ready",
-      "sudo echo \"#!/bin/sh\" >> /home/ubuntu/rc.local",
-      "sudo echo \"export APP_KEY='${var.APP_KEY}'\" >> /home/ubuntu/rc.local",
-      "sudo echo \"export APP_URL=${var.APP_URL}\" >> /home/ubuntu/rc.local",
-      "sudo echo \"export DB_HOST=${var.DB_HOST}\" >> /home/ubuntu/rc.local",
-      "sudo echo \"export DB_NAME=${var.DB_NAME}\" >> /home/ubuntu/rc.local",
-      "sudo echo \"export DB_USERNAME=${var.DB_USERNAME}\" >> /home/ubuntu/rc.local",
-      "sudo echo \"export DB_PASSWORD='${var.DB_PASSWORD}'\" >> /home/ubuntu/rc.local",
-      "sudo echo \"export SPARKPOST_SECRET=${var.SPARKPOST_SECRET}\" >> /home/ubuntu/rc.local",
-      "sudo echo \"export AWS_ACCESS_KEY_ID=${var.AWS_ACCESS_KEY_ID}\" >> /home/ubuntu/rc.local",
-      "sudo echo \"export AWS_SECRET_ACCESS_KEY=${var.AWS_SECRET_ACCESS_KEY}\" >> /home/ubuntu/rc.local",
-      "sudo echo \"export BUGSNAG_API_KEY=${var.BUGSNAG_API_KEY}\" >> /home/ubuntu/rc.local",
-      "sudo echo \"export FCM_SERVER_KEY=${var.FCM_SERVER_KEY}\" >> /home/ubuntu/rc.local",
-      "sudo echo \"export STRIPE_KEY=${var.STRIPE_KEY}\" >> /home/ubuntu/rc.local",
-      "sudo echo \"export STRIPE_SECRET=${var.STRIPE_SECRET}\" >> /home/ubuntu/rc.local",
-      "sudo echo \"sudo git config --global --add safe.directory /home/ubuntu/laravel\" >> /home/ubuntu/rc.local",
-      "sudo echo \"cd /home/ubuntu/laravel\" >> /home/ubuntu/rc.local",
-      "sudo echo \"sudo git pull \" >> /home/ubuntu/rc.local",
-      "sudo echo \"sudo git checkout ${var.BE_BRANCH_NAME}\" >> /home/ubuntu/rc.local",
-      "sudo echo \"sudo git pull \" >> /home/ubuntu/rc.local",
-      "sudo echo \"envsubst < /home/ubuntu/laravel/app-config.txt | cat - > .env.test\" >> /home/ubuntu/rc.local",
-      "sudo echo \"sudo cat .env.test > .env\" >> /home/ubuntu/rc.local",
-      "sudo echo \"sudo rm -rf composer.lock\" >> /home/ubuntu/rc.local",
-      "sudo echo \"sudo composer install\" >> /home/ubuntu/rc.local",
-      "sudo echo \"sudo php artisan key:generate\" >> /home/ubuntu/rc.local",
-      "sudo echo \"sudo chmod -R 777 storage\" >> /home/ubuntu/rc.local",
-      "sudo echo \"sudo php artisan serve\" >> /home/ubuntu/rc.local",
-      "sudo echo \"Backend is configured!!!\"",
-      "sudo chmod 777 /home/ubuntu/rc.local",
-      "sudo echo \"Script is completed.\"",
-      "sudo cp /home/ubuntu/rc.local /etc/rc.local",
-      #   "sleep30",
-      #   "cd /home/ubuntu/laravel",
-      #   "sudo -u ubuntu git pull",
-      #   "sudo -u ubuntu git checkout ${var.barnch_name}",
-      #   "sudo -u ubuntu git pull",
-      #   "cd /home/ubuntu",
-      #   "touch /home/ubuntu/rc.local",
-      #   "sudo echo \"cd /home/ubuntu/laravel\" >> /home/ubuntu/rc.local",
-      #   "sudo echo \"composer install\" >> /home/ubuntu/rc.local",
-      #   "sudo -u ubuntu git ",
-
-    ]
   }
 }
