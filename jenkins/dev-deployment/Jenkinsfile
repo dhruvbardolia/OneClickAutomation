@@ -2,19 +2,27 @@ pipeline{
     agent {
        label "aws-jenkins-slave"
     }
+    parameters {
+        choice(name: 'RDS_ENDPOINT', choices: ['Production', 'Development'], description: 'Select which RDS endpoint to use')
+        string(name: 'NAME', defaultValue: 'demo-env', description: 'Environment name used across Terraform, Packer, and DynamoDB')
+        string(name: 'BE_BRANCH_NAME', defaultValue: 'main', description: 'Backend branch to build into the AMI')
+        string(name: 'FE_BRANCH_NAME', defaultValue: 'main', description: 'Frontend branch to build before uploading to S3')
+    }
     stages{
         stage('Database Creation') {
             steps {
                 script {
                     if (params.RDS_ENDPOINT == 'Production') {
                         withCredentials([
-                            usernamePassword(credentialsId: 'github-credentials', passwordVariable: 'PASSWORD', usernameVariable: 'USERNAME'), # Github credentials from Jenkins Credentials
-                            usernamePassword(credentialsId: 'rds-credentials', passwordVariable: 'DB_PASSWORD', usernameVariable: 'DB_USERNAME'), # RDS credentials from Jenkins Credentials
+                            // Github credentials from Jenkins Credentials
+                            usernamePassword(credentialsId: 'github-credentials', passwordVariable: 'PASSWORD', usernameVariable: 'USERNAME'),
+                            // RDS credentials from Jenkins Credentials
+                            usernamePassword(credentialsId: 'rds-credentials', passwordVariable: 'DB_PASSWORD', usernameVariable: 'DB_USERNAME'),
                             string(credentialsId: 'USER_PASSWORD', variable: 'USER_PASSWORD'),
                             ]) {
-                            echo "Database Creation"
+                            echo "[Database] Starting database creation."
                             sh '''#!/bin/bash
-                                echo "RDS Creation..."
+                                echo "[Database] Provisioning RDS instance..."
                                 git clone https://${USERNAME}:${PASSWORD}@github.com/dhruvbardolia/dhruv-infra.git
                                 cd dhruv-infra/terraform/RDS
                                 export NAME=${NAME}
@@ -28,12 +36,12 @@ pipeline{
                                 terraform apply -input=false -lock=false "${NAME}.tfplan"
                                 export RDS_NAME=$(terraform output -raw rds_name)
                                 export ENDPOINT=$(aws rds describe-db-instances --db-instance-identifier $RDS_NAME --region us-east-1 --query "*[].[Endpoint.Address]" | grep '"' | cut -d '"' -f 2)
-                                echo $RDS_NAME
-                                echo $ENDPOINT
+                                echo "[Database] RDS instance: $RDS_NAME"
+                                echo "[Database] Endpoint: $ENDPOINT"
                                 sleep 15
                                 mysql -h $ENDPOINT -u ${DB_USERNAME} -p${DB_PASSWORD} -D dhruvbardolia -e "USE dhruvbardolia; UPDATE users SET mail = CONCAT('dhruv-user-', uid, '@dhruv.io') where mail != 'superteam@dhruv.io';"
                                 mysql -h $ENDPOINT -u ${DB_USERNAME} -p${DB_PASSWORD} -D dhruvbardolia -e "USE dhruvbardolia; UPDATE users SET password = '${USER_PASSWORD}';"
-                                echo "RDS Creation successfull..."
+                                echo "[Database] RDS creation completed successfully."
                             '''
                         }
                     } 
@@ -43,14 +51,14 @@ pipeline{
                             usernamePassword(credentialsId: 'rds-credentials', passwordVariable: 'DB_PASSWORD', usernameVariable: 'DB_USERNAME'),
                             string(credentialsId: 'USER_PASSWORD', variable: 'USER_PASSWORD'),
                             ]) {
-                            echo "RDS-DEV-DB"
+                            echo "[Database] Using existing development RDS instance."
                             sh '''#!/bin/bash
-                                echo "Fetching the RDS..."
+                                echo "[Database] Fetching RDS endpoint details..."
                                 export ENDPOINT="dhruvbardolia-dev.xyz.us-east-1.rds.amazonaws.com"
-                                echo $ENDPOINT
+                                echo "[Database] Endpoint: $ENDPOINT"
                                 sleep 15
                                 mysql -h $ENDPOINT -u ${DB_USERNAME} -p${DB_PASSWORD} -e "SHOW DATABASES;"
-                                echo "RDS Connection is success..."
+                                echo "[Database] Verified connectivity to development RDS."
                             '''
                         }
                     }
@@ -72,14 +80,13 @@ pipeline{
                             string(credentialsId: 'BUGSNAG_API_KEY', variable: 'BUGSNAG_API_KEY'),
                             string(credentialsId: 'FCM_SERVER_KEY', variable: 'FCM_SERVER_KEY'),
                             string(credentialsId: 'STRIPE_KEY', variable: 'STRIPE_KEY'),
-                            string(credentialsId: 'BUGSNAG_API_KEY', variable: 'BUGSNAG_API_KEY'),
                             string(credentialsId: 'STRIPE_SECRET', variable: 'STRIPE_SECRET'),
                             
                             ]) {
-                            echo "Backend-Deployment starts..."
+                            echo "[Backend] Starting backend deployment (Production)."
                             sh '''#!/bin/bash
 
-                                echo "Packer building new AMI..."
+                                echo "[Backend] Building AMI with Packer..."
                                 export DIR=$(pwd)
                                 cd $DIR
                                 cd terraform/RDS
@@ -87,17 +94,17 @@ pipeline{
                                 cat test.conf > backend.conf
                                 terraform init -backend-config=backend.conf
                                 export RDS_NAME=$(terraform output -raw rds_name)
-                                echo $RDS_NAME
+                                echo "[Backend] Resolved production RDS instance: $RDS_NAME"
                                 export ENDPOINT=$(aws rds describe-db-instances --db-instance-identifier $RDS_NAME --region us-east-1 --query "*[].[Endpoint.Address]" | grep '"' | cut -d '"' -f 2)
-                                echo "RDS-Endpoint: $ENDPOINT"
+                                echo "[Backend] Production RDS endpoint: $ENDPOINT"
                                 cd $DIR
                                 cd packer
                                 packer init .
                                 packer build -var "AMI_NAME=${NAME}" -var "BE_BRANCH_NAME=${BE_BRANCH_NAME}" -var "APP_KEY=${APP_KEY}" -var "APP_URL=http://localhost" -var "DB_HOST=$ENDPOINT" -var "DB_NAME=dhruvbardolia" -var "DB_USERNAME=${DB_dhruvbardolia_USERNAME}" -var "DB_PASSWORD=${DB_dhruvbardolia_PASSWORD}" -var "SPARKPOST_SECRET=${SPARKPOST_SECRET}" -var "AWS_ACCESS_KEY_ID=${AWS_ACCESS_KEY_ID}" -var "AWS_SECRET_ACCESS_KEY=${AWS_SECRET_ACCESS_KEY}" -var "BUGSNAG_API_KEY=${BUGSNAG_API_KEY}" -var "FCM_SERVER_KEY=${FCM_SERVER_KEY}" -var "STRIPE_KEY=${STRIPE_KEY}" -var "STRIPE_SECRET=${STRIPE_SECRET}" build.pkr.hcl
                                 AMI_ID=$(jq -r '.builds[-1].artifact_id' manifest.json | cut -d ":" -f2)
-                                echo "New AMI is created: $AMI_ID"
+                                echo "[Backend] Created AMI: $AMI_ID"
 
-                                echo "Backend Deployment..."
+                                echo "[Backend] Applying Terraform for backend infrastructure..."
                                 cd ..
                                 cd terraform/EC2-S3
                                 envsubst < backend.conf | cat - > test.conf
@@ -106,8 +113,8 @@ pipeline{
                                 terraform fmt -check
                                 terraform plan -input=false -var-file staging.tfvars -out ${NAME}.tfplan -lock=false -var="name=${NAME}" -var="image_id=$AMI_ID"
                                 terraform apply -input=false -lock=false "${NAME}.tfplan"
-                                echo "Backend Public ip address is $BACKEND_PUBLIC_IP"
-                                echo "Backend Deployment successfull..."
+                                echo "[Backend] Backend public IP: $BACKEND_PUBLIC_IP"
+                                echo "[Backend] Backend deployment completed successfully."
                             '''
                         }
                     }
@@ -123,26 +130,25 @@ pipeline{
                             string(credentialsId: 'BUGSNAG_API_KEY', variable: 'BUGSNAG_API_KEY'),
                             string(credentialsId: 'FCM_SERVER_KEY', variable: 'FCM_SERVER_KEY'),
                             string(credentialsId: 'STRIPE_KEY', variable: 'STRIPE_KEY'),
-                            string(credentialsId: 'BUGSNAG_API_KEY', variable: 'BUGSNAG_API_KEY'),
                             string(credentialsId: 'STRIPE_SECRET', variable: 'STRIPE_SECRET'),
                             
                             ]) {
-                            echo "Backend-Deployment starts..."
+                            echo "[Backend] Starting backend deployment (Development)."
                             sh '''#!/bin/bash
 
-                                echo "Packer building new AMI..."
+                                echo "[Backend] Building AMI with Packer..."
                                 git clone https://${USERNAME}:${PASSWORD}@github.com/dhruvbardolia/dhruv-infra.git
                                 export DIR=$(pwd)
                                 export ENDPOINT="dhruvbardolia-dev.c5ag8ujkoc4k.us-east-1.rds.amazonaws.com"
-                                echo "RDS-Endpoint: $ENDPOINT"
+                                echo "[Backend] Development RDS endpoint: $ENDPOINT"
                                 cd $DIR
                                 cd packer
                                 packer init .
                                 packer build -var "AMI_NAME=${NAME}" -var "BE_BRANCH_NAME=${BE_BRANCH_NAME}" -var "APP_KEY=${APP_KEY}" -var "APP_URL=http://localhost" -var "DB_HOST=$ENDPOINT" -var "DB_NAME=dhruvbardolia" -var "DB_USERNAME=${DB_dhruvbardolia_USERNAME}" -var "DB_PASSWORD=${DB_dhruvbardolia_PASSWORD}" -var "SPARKPOST_SECRET=${SPARKPOST_SECRET}" -var "AWS_ACCESS_KEY_ID=${AWS_ACCESS_KEY_ID}" -var "AWS_SECRET_ACCESS_KEY=${AWS_SECRET_ACCESS_KEY}" -var "BUGSNAG_API_KEY=${BUGSNAG_API_KEY}" -var "FCM_SERVER_KEY=${FCM_SERVER_KEY}" -var "STRIPE_KEY=${STRIPE_KEY}" -var "STRIPE_SECRET=${STRIPE_SECRET}" build.pkr.hcl
                                 AMI_ID=$(jq -r '.builds[-1].artifact_id' manifest.json | cut -d ":" -f2)
-                                echo "New AMI is created: $AMI_ID"
+                                echo "[Backend] Created AMI: $AMI_ID"
 
-                                echo "Backend Deployment..."
+                                echo "[Backend] Applying Terraform for backend infrastructure..."
                                 cd ..
                                 cd terraform/EC2-S3
                                 envsubst < backend.conf | cat - > test.conf
@@ -151,8 +157,8 @@ pipeline{
                                 terraform fmt -check
                                 terraform plan -input=false -var-file staging.tfvars -out ${NAME}.tfplan -lock=false -var="name=${NAME}" -var="image_id=$AMI_ID"
                                 terraform apply -input=false -lock=false "${NAME}.tfplan"
-                                echo "Backend Public ip address is $BACKEND_PUBLIC_IP"
-                                echo "Backend Deployment successfull..."
+                                echo "[Backend] Backend public IP: $BACKEND_PUBLIC_IP"
+                                echo "[Backend] Backend deployment completed successfully."
                             '''
                         }
                     }
@@ -170,7 +176,7 @@ pipeline{
             steps {
                 withCredentials([usernamePassword(credentialsId: 'github-credentials', passwordVariable: 'PASSWORD', usernameVariable: 'USERNAME')]) {
                     sh '''#!/bin/bash
-                        echo "Frontend Build..."
+                        echo "[Frontend] Starting build process..."
 
                         export NAME=${NAME}
                         export DIR=$(pwd)
@@ -196,26 +202,26 @@ pipeline{
                         # Install project dependencbackend.confies and build
                         npm install
                         npm run build:test
-                        echo "Frontend Build successfully..."
+                        echo "[Frontend] Frontend build completed successfully."
 
-                        echo "Copying all the artifacts to S3 bucket..."
+                        echo "[Frontend] Uploading artifacts to S3..."
                         # S3 bucket name
                         aws s3 cp output/dist/ s3://${S3_NAME} --recursive
                         aws s3 ls s3://${S3_NAME} --recursive --human-readable --summarize
                         aws s3 cp public/ s3://${S3_NAME}/public --recursive
                         aws s3 ls s3://${S3_NAME} --recursive --human-readable --summarize
-                        echo "Copied all the artifacts to S3 bucket..."
+                        echo "[Frontend] Artifact upload completed."
 
                         cd ..
                         cd $DIR
                         cd terraform/EC2-S3
                         export S3_URL=$(terraform output -raw s3_url)
-                        echo "Frontend URL : $S3_URL"
-                        echo "RDS Endpoint : $ENDPOINT"
-                        echo "Backend Public IP : $BACKEND_PUBLIC_IP"
+                        echo "[Frontend] Distribution URL: $S3_URL"
+                        echo "[Frontend] RDS endpoint: $ENDPOINT"
+                        echo "[Frontend] Backend public IP: $BACKEND_PUBLIC_IP"
                         cd $DIR
                         rm -rf *
-                        echo "Frontend Deployment successfull..."
+                        echo "[Frontend] Frontend deployment completed successfully."
                     '''
                 }
             }
@@ -231,7 +237,7 @@ pipeline{
                     ]) {
                         sh "aws dynamodb put-item --table-name environments --region us-east-1 --item '{\"Name\": {\"S\": \"${environmentName}\"}}'"
                     }
-                    echo "Stored environment name '${environmentName}' in DynamoDB."
+                    echo "[DynamoDB] Stored environment name '${environmentName}'."
                 }
             }
         }
