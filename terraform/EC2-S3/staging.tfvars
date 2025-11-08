@@ -1,7 +1,11 @@
-name                   = "woliba-test"
-iam_profile            = "backend-instance-role"
+name                   = "example"
+iam_profile            = "example-instance-profile"
 image_id               = ""
 instance_type          = "t3.medium"
-key_name               = "iamops"
-vpc_security_group_ids = ["sg-0d48ef7c97e9fa110"]
-subnets                = ["subnet-07c428a52091e4dd7", "subnet-093b7948bdc70ab9d"]
+key_name               = "example-key"
+vpc_security_group_ids = ["sg-xxxxxxxxxxxxxxxxx"]
+subnets                = ["subnet-aaaaaaaaaaaaaaaaa", "subnet-bbbbbbbbbbbbbbbb"]
+route53_zone_id        = "ZXXXXXXXXXXXX"
+root_domain            = "example.com"
+frontend_bucket_suffix = "fe.example.com"
+aws_region             = "us-east-1"
