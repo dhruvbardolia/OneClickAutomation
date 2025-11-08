@@ -46,8 +46,7 @@ pipeline{
                             echo "RDS-DEV-DB"
                             sh '''#!/bin/bash
                                 echo "Fetching the RDS..."
-                                git clone https://${USERNAME}:${PASSWORD}@github.com/dhruvbardolia/dhruv-infra.git
-                                export ENDPOINT="dhruvbardolia-dev.c5ag8ujkoc4k.us-east-1.rds.amazonaws.com"
+                                export ENDPOINT="dhruvbardolia-dev.xyz.us-east-1.rds.amazonaws.com"
                                 echo $ENDPOINT
                                 sleep 15
                                 mysql -h $ENDPOINT -u ${DB_USERNAME} -p${DB_PASSWORD} -e "SHOW DATABASES;"
@@ -81,19 +80,18 @@ pipeline{
                             sh '''#!/bin/bash
 
                                 echo "Packer building new AMI..."
-                                git clone https://${USERNAME}:${PASSWORD}@github.com/dhruvbardolia/dhruv-infra.git
                                 export DIR=$(pwd)
-                                cd dhruv-infra/terraform/RDS
-                                envsubst < s3-bucket.conf | cat - > test.conf
-                                cat test.conf > s3-bucket.conf
-                                terraform init -backend-config=s3-bucket.conf
+                                cd $DIR
+                                cd terraform/RDS
+                                envsubst < backend.conf | cat - > test.conf
+                                cat test.conf > backend.conf
+                                terraform init -backend-config=backend.conf
                                 export RDS_NAME=$(terraform output -raw rds_name)
                                 echo $RDS_NAME
                                 export ENDPOINT=$(aws rds describe-db-instances --db-instance-identifier $RDS_NAME --region us-east-1 --query "*[].[Endpoint.Address]" | grep '"' | cut -d '"' -f 2)
                                 echo "RDS-Endpoint: $ENDPOINT"
-                                cd ../../..
                                 cd $DIR
-                                cd dhruv-infra/packer
+                                cd packer
                                 packer init .
                                 packer build -var "AMI_NAME=${NAME}" -var "BE_BRANCH_NAME=${BE_BRANCH_NAME}" -var "APP_KEY=${APP_KEY}" -var "APP_URL=http://localhost" -var "DB_HOST=$ENDPOINT" -var "DB_NAME=dhruvbardolia" -var "DB_USERNAME=${DB_dhruvbardolia_USERNAME}" -var "DB_PASSWORD=${DB_dhruvbardolia_PASSWORD}" -var "SPARKPOST_SECRET=${SPARKPOST_SECRET}" -var "AWS_ACCESS_KEY_ID=${AWS_ACCESS_KEY_ID}" -var "AWS_SECRET_ACCESS_KEY=${AWS_SECRET_ACCESS_KEY}" -var "BUGSNAG_API_KEY=${BUGSNAG_API_KEY}" -var "FCM_SERVER_KEY=${FCM_SERVER_KEY}" -var "STRIPE_KEY=${STRIPE_KEY}" -var "STRIPE_SECRET=${STRIPE_SECRET}" build.pkr.hcl
                                 AMI_ID=$(jq -r '.builds[-1].artifact_id' manifest.json | cut -d ":" -f2)
@@ -102,9 +100,9 @@ pipeline{
                                 echo "Backend Deployment..."
                                 cd ..
                                 cd terraform/EC2-S3
-                                envsubst < s3-bucket.conf | cat - > test.conf
-                                cat test.conf > s3-bucket.conf
-                                terraform init -backend-config=s3-bucket.conf
+                                envsubst < backend.conf | cat - > test.conf
+                                cat test.conf > backend.conf
+                                terraform init -backend-config=backend.conf
                                 terraform fmt -check
                                 terraform plan -input=false -var-file staging.tfvars -out ${NAME}.tfplan -lock=false -var="name=${NAME}" -var="image_id=$AMI_ID"
                                 terraform apply -input=false -lock=false "${NAME}.tfplan"
@@ -138,7 +136,7 @@ pipeline{
                                 export ENDPOINT="dhruvbardolia-dev.c5ag8ujkoc4k.us-east-1.rds.amazonaws.com"
                                 echo "RDS-Endpoint: $ENDPOINT"
                                 cd $DIR
-                                cd dhruv-infra/packer
+                                cd packer
                                 packer init .
                                 packer build -var "AMI_NAME=${NAME}" -var "BE_BRANCH_NAME=${BE_BRANCH_NAME}" -var "APP_KEY=${APP_KEY}" -var "APP_URL=http://localhost" -var "DB_HOST=$ENDPOINT" -var "DB_NAME=dhruvbardolia" -var "DB_USERNAME=${DB_dhruvbardolia_USERNAME}" -var "DB_PASSWORD=${DB_dhruvbardolia_PASSWORD}" -var "SPARKPOST_SECRET=${SPARKPOST_SECRET}" -var "AWS_ACCESS_KEY_ID=${AWS_ACCESS_KEY_ID}" -var "AWS_SECRET_ACCESS_KEY=${AWS_SECRET_ACCESS_KEY}" -var "BUGSNAG_API_KEY=${BUGSNAG_API_KEY}" -var "FCM_SERVER_KEY=${FCM_SERVER_KEY}" -var "STRIPE_KEY=${STRIPE_KEY}" -var "STRIPE_SECRET=${STRIPE_SECRET}" build.pkr.hcl
                                 AMI_ID=$(jq -r '.builds[-1].artifact_id' manifest.json | cut -d ":" -f2)
@@ -147,9 +145,9 @@ pipeline{
                                 echo "Backend Deployment..."
                                 cd ..
                                 cd terraform/EC2-S3
-                                envsubst < s3-bucket.conf | cat - > test.conf
-                                cat test.conf > s3-bucket.conf
-                                terraform init -backend-config=s3-bucket.conf
+                                envsubst < backend.conf | cat - > test.conf
+                                cat test.conf > backend.conf
+                                terraform init -backend-config=backend.conf
                                 terraform fmt -check
                                 terraform plan -input=false -var-file staging.tfvars -out ${NAME}.tfplan -lock=false -var="name=${NAME}" -var="image_id=$AMI_ID"
                                 terraform apply -input=false -lock=false "${NAME}.tfplan"
@@ -176,17 +174,16 @@ pipeline{
 
                         export NAME=${NAME}
                         export DIR=$(pwd)
-                        git clone https://${USERNAME}:${PASSWORD}@github.com/dhruvbardolia/dhruv-infra.git
-                        cd dhruv-infra/terraform/EC2-S3
-                        envsubst < s3-bucket.conf | cat - > test.conf
-                        cat test.conf > s3-bucket.conf
-                        terraform init -backend-config=s3-bucket.conf
+                        cd terraform/EC2-S3
+                        envsubst < backend.conf | cat - > test.conf
+                        cat test.conf > backend.conf
+                        terraform init -backend-config=backend.conf
                         export S3_NAME=$(terraform output -raw s3_name)
                         export BACKEND_PUBLIC_IP=$(terraform output -raw public_ip)
 
                         export API_URL=http://$BACKEND_PUBLIC_IP
                         cd $DIR
-                        git clone https://${USERNAME}:${PASSWORD}@github.com/dhruvbardolia/react.git
+                        git clone https://${USERNAME}:${PASSWORD}@github.com/react.git
                         cd react
                         #Checkout the branch based on a parameter
                         git checkout ${FE_BRANCH_NAME}
@@ -196,8 +193,7 @@ pipeline{
                         cat .env.test > .env
                         cat .env
                         
-                        # Install project dependencs3-bucket.confies and build
-                        npm  config set unsafe-perm true
+                        # Install project dependencbackend.confies and build
                         npm install
                         npm run build:test
                         echo "Frontend Build successfully..."
@@ -212,44 +208,18 @@ pipeline{
 
                         cd ..
                         cd $DIR
-                        cd dhruv-infra/terraform/EC2-S3
+                        cd terraform/EC2-S3
                         export S3_URL=$(terraform output -raw s3_url)
-                        cd ..
                         echo "Frontend URL : $S3_URL"
                         echo "RDS Endpoint : $ENDPOINT"
                         echo "Backend Public IP : $BACKEND_PUBLIC_IP"
-                        cd ../../..
                         cd $DIR
-                        rm -rf dhruv-infra react
                         rm -rf *
                         echo "Frontend Deployment successfull..."
                     '''
                 }
             }
         }
-        // stage('Register Job in S3') {
-        //     steps {
-        //         script {
-        //             echo "S3 Registering..."
-        //             def jobName = NAME
-        //             def s3Bucket = "live-env.dhruv.io"
-        //             def fileName = "index.html"
-        //             def tempFile = "temp.txt"
-
-        //             withCredentials([
-        //                 string(credentialsId: 'AWS_ACCESS_KEY_ID', variable: 'AWS_ACCESS_KEY_ID'),
-        //                 string(credentialsId: 'AWS_SECRET_ACCESS_KEY', variable: 'AWS_SECRET_ACCESS_KEY')
-        //             ]) {
-        //                 sh "aws s3 cp s3://${s3Bucket}/${fileName} ${tempFile} || touch ${tempFile}"
-        //                 sh "echo ${jobName} >> ${tempFile}"
-        //                 sh "aws s3 cp ${tempFile} s3://${s3Bucket}/${fileName}"
-        //                 sh "rm ${tempFile}"
-        //             }
-        //             echo "S3 Registration is completed"
-        //             echo "http://live-env.dhruv.io/"
-        //         }
-        //     }
-        // }
         stage('Store Environment Name in DynamoDB') {
             steps {
                 script {

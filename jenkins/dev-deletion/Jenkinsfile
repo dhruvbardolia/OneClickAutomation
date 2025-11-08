@@ -9,14 +9,13 @@ pipeline{
                     usernamePassword(credentialsId: 'rds-credentials', passwordVariable: 'PASSWORD', usernameVariable: 'USERNAME'),
                     usernamePassword(credentialsId: 'github-credentials', passwordVariable: 'PASSWORD', usernameVariable: 'USERNAME')
                     ]) {
-                    echo "RDS-DB-Creation"
+                    echo "RDS-DB-deletion"
                     sh '''#!/bin/bash
                         echo "RDS Deletion..."
-                        git clone https://${USERNAME}:${PASSWORD}@github.com/TrainingAmigo/woliba-infra.git
-                        cd woliba-infra/terraform/RDS
-                        envsubst < s3-bucket.conf | cat - > test.conf
-                        cat test.conf > s3-bucket.conf
-                        terraform init -backend-config=s3-bucket.conf
+                        cd terraform/RDS
+                        envsubst < backend.conf | cat - > test.conf
+                        cat test.conf > backend.conf
+                        terraform init -backend-config=backend.conf
                         terraform fmt -check
                         terraform destroy -input=false -var-file staging.tfvars -var "name=${NAME}" -auto-approve
                         echo "RDS Deleted successfully..."
@@ -38,11 +37,10 @@ pipeline{
                         echo "Deleting Snapshot..."
                         aws ec2 delete-snapshot --snapshot-id $SNAPSHOT_ID --region us-east-1
                         echo "Snapshot deleted..."
-                        git clone https://${USERNAME}:${PASSWORD}@github.com/TrainingAmigo/woliba-infra.git
-                        cd woliba-infra/terraform/EC2-S3
-                        envsubst < s3-bucket.conf | cat - > test.conf
-                        cat test.conf > s3-bucket.conf
-                        terraform init -backend-config=s3-bucket.conf
+                        cd terraform/EC2-S3
+                        envsubst < backend.conf | cat - > test.conf
+                        cat test.conf > backend.conf
+                        terraform init -backend-config=backend.conf
                         terraform fmt -check
                         terraform destroy -input=false -var-file staging.tfvars -var "name=${NAME}" -var="image_id=${AMI_ID}" -auto-approve
                         echo "Environment Deleted successfully..."
@@ -50,29 +48,6 @@ pipeline{
                 }
             }
         }
-        // stage('Remove Job from S3') {
-        //     steps {
-        //         script {
-        //             echo "De-registering of the live environment from S3 Bucket is started..."
-
-        //             def jobNameToRemove = NAME 
-        //             def s3Bucket = "live-env.woliba.io"
-        //             def fileName = "index.html"
-        //             def tempFile = "temp.txt"
-
-        //             withCredentials([
-        //                 string(credentialsId: 'AWS_ACCESS_KEY_ID', variable: 'AWS_ACCESS_KEY_ID'),
-        //                 string(credentialsId: 'AWS_SECRET_ACCESS_KEY', variable: 'AWS_SECRET_ACCESS_KEY')
-        //             ]) {
-        //                 sh "aws s3 cp s3://${s3Bucket}/${fileName} ${tempFile}"
-        //                 sh "sed -i '/${jobNameToRemove}/d' ${tempFile}"
-        //                 sh "aws s3 cp ${tempFile} s3://${s3Bucket}/${fileName}"
-        //                 sh "rm ${tempFile}"
-        //             }
-        //             echo "De-registering of the live environment from S3 Bucket is completed."
-        //         }
-        //     }
-        // }
         stage('Remove Environment from DynamoDB') {
             steps {
                 script {
