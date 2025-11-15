@@ -163,37 +163,7 @@ Ensure your AWS IAM user/role has permissions for:
 
 ## Deployment Flow
 
-```
-┌────────────────────┐
-│ Jenkins (dev-deploy│
-│ ment pipeline)     │
-└────────┬───────────┘
-         │ parameters drive NAME / branches / RDS mode
-         ▼
-┌──────────────────────────────┐
-│ Stage: Database Creation     │──► optional Terraform in terraform/RDS clones snapshot
-└────────┬─────────────────────┘
-         │
-         ▼
-┌──────────────────────────────┐
-│ Stage: Backend Deployment    │
-│  • Packer builds AMI         │
-│  • Terraform EC2-S3 module   │──► Launch template + ASG + Elastic IP + Route53
-│  • EC2 instances (backend)   │      → Backend reachable at `${NAME}-api.<root_domain>`
-└────────┬─────────────────────┘
-         │
-         ▼
-┌──────────────────────────────┐
-│ Stage: Frontend Deployment   │
-│  • Dockerized Node build     │
-│  • Upload static files to S3 │──► `s3://${NAME}-timestamp-${suffix}` served via S3 website endpoint
-└────────┬─────────────────────┘
-         │
-         ▼
-┌──────────────────────────────┐
-│ Stage: DynamoDB Registration │──► stores `${NAME}` for environment tracking
-└──────────────────────────────┘
-```
+<img src="./image.png" alt="OneClickAutomation diagram" width="600">
 
 Backend workloads run on spot-backed EC2 instances in an Auto Scaling Group behind a dedicated Elastic IP/DNS record. Frontend assets are hosted from the timestamped S3 bucket (static website hosting), so new deployments receive a unique URL while sharing the same backend API.
 
